@@ -1,4 +1,7 @@
+local Library = {}
 local UIFramework = {}
+local MultiWindow = {}
+local ThemeEngine = {}
 
 --// SERVICES
 local Players = game:GetService("Players")
@@ -199,7 +202,6 @@ function UIFramework:CreateWindow(settings)
 	}
 end
 
-return UIFramework
 
 --========================================================
 --  PART 2 : TAB SYSTEM + TAB BUTTONS (WindUI Style)
@@ -795,7 +797,7 @@ function UIFramework:ProcessNotifications()
     self.NotificationRunning = false
 end
 
-function UI:Dropdown(parent, text, defaultValue, list, callback)
+function UIFramework:Dropdown(parent, text, defaultValue, list, callback)
     callback = callback or function() end
 
     local dropdown = Instance.new("Frame")
@@ -918,7 +920,7 @@ function UI:Dropdown(parent, text, defaultValue, list, callback)
     }
 end
 
-function UI:Keybind(parent, text, defaultKey, callback)
+function UIFramework:Keybind(parent, text, defaultKey, callback)
     callback = callback or function() end
     defaultKey = defaultKey or Enum.KeyCode.RightShift
 
@@ -1009,7 +1011,7 @@ function UI:Keybind(parent, text, defaultKey, callback)
     }
 end
 
-function UI:CreateNotification(data)
+function UIFramework:CreateNotification(data)
     local notif = Instance.new("Frame")
     notif.Size = UDim2.new(0, 300, 0, 70)
     notif.BackgroundColor3 = theme.element
@@ -1114,7 +1116,7 @@ function SaveSystem:Save(name, data)
     writefile(path, encoded)
 end
 
-function UI:CreateFloatingButton(window)
+function UIFramework:CreateFloatingButton(window)
     local button = Instance.new("ImageButton")
     button.Name = "FloatingToggle"
     button.Size = UDim2.new(0, 48, 0, 48)
@@ -1216,7 +1218,7 @@ function UI:CreateFloatingButton(window)
     return button
 end
 
-function UI:EnableResize(window)
+function UIFramework:EnableResize(window)
     local resizeCorner = Instance.new("Frame")
     resizeCorner.Name = "ResizeHandle"
     resizeCorner.Size = UDim2.new(0, 20, 0, 20)
@@ -1579,12 +1581,9 @@ Library.TweenPresets.HoverGlow = function(button)
 end
 
 --// PART 17 : THEME MANAGER + AUTO SAVE UI SETTINGS
+--// PART 17 : THEME MANAGER + AUTO SAVE (CLIENT SAFE)
 
-local HttpService = game:GetService("HttpService")
 local Player = game.Players.LocalPlayer
-local DataStoreService = game:GetService("DataStoreService")
-
-local UISettingsStore = DataStoreService:GetDataStore("ModernUILibrary_Settings")
 
 local UISettings = {
     Theme = "Dark",
@@ -1593,67 +1592,80 @@ local UISettings = {
     BlurEnabled = false
 }
 
-local function SaveSettings()
-    coroutine.wrap(function()
-        pcall(function()
-            UISettingsStore:SetAsync(Player.UserId.."_UI", UISettings)
-        end)
-    end)()
-end
+-- ใช้ SaveSystem ที่มีอยู่แล้ว
+local SaveName = "ModernUI_Settings"
 
 local function LoadSettings()
-    local data
-    pcall(function()
-        data = UISettingsStore:GetAsync(Player.UserId.."_UI")
-    end)
+    local data = SaveSystem:Load(SaveName)
 
     if data then
-        for i, v in pairs(data) do
-            UISettings[i] = v
+        for k, v in pairs(data) do
+            UISettings[k] = v
         end
     end
 end
 
-LoadSettings()
-
---// เชื่อมเข้ากับ UI Library (สมมติว่า Library ชื่อ ModernUI)
-local function ApplyToLibrary(Library)
-    Library:SetTheme(UISettings.Theme)
-
-    Library:SetWindowSize(UISettings.WindowSize.X, UISettings.WindowSize.Y)
-    Library:SetWindowPosition(UISettings.WindowPos.X, UISettings.WindowPos.Y)
-
-    Library:SetBlur(UISettings.BlurEnabled)
+local function SaveSettings()
+    SaveSystem:Save(SaveName, UISettings)
 end
 
---// Event จาก Library  
+LoadSettings()
+
+local function ApplyToLibrary(Library)
+    if not Library then return end
+
+    if Library.SetTheme then
+        Library:SetTheme(UISettings.Theme)
+    end
+
+    if Library.SetWindowSize then
+        Library:SetWindowSize(UISettings.WindowSize.X, UISettings.WindowSize.Y)
+    end
+
+    if Library.SetWindowPosition then
+        Library:SetWindowPosition(UISettings.WindowPos.X, UISettings.WindowPos.Y)
+    end
+
+    if Library.SetBlur then
+        Library:SetBlur(UISettings.BlurEnabled)
+    end
+end
+
 task.spawn(function()
     local Library = _G.ModernUI
+    if not Library then return end
 
-    if Library then
-        ApplyToLibrary(Library)
+    ApplyToLibrary(Library)
 
+    if Library.OnThemeChanged then
         Library.OnThemeChanged:Connect(function(t)
             UISettings.Theme = t
             SaveSettings()
         end)
+    end
 
+    if Library.OnWindowResize then
         Library.OnWindowResize:Connect(function(size)
             UISettings.WindowSize = {X = size.X, Y = size.Y}
             SaveSettings()
         end)
+    end
 
+    if Library.OnWindowMoved then
         Library.OnWindowMoved:Connect(function(pos)
             UISettings.WindowPos = {X = pos.X, Y = pos.Y}
             SaveSettings()
         end)
+    end
 
+    if Library.OnBlurToggled then
         Library.OnBlurToggled:Connect(function(state)
             UISettings.BlurEnabled = state
             SaveSettings()
         end)
     end
 end)
+
 
 --// PART 18 : UI SoundFX System
 local SoundService = game:GetService("SoundService")
@@ -1713,7 +1725,6 @@ function UISound:Notification()
 end
 
 _G.UISoundFX = UISound
-return UISound
 
 --// PART 19 : UI Profiler HUD
 local RunService = game:GetService("RunService")
@@ -1931,7 +1942,6 @@ function MultiWindow:CreateWindow(title, sizeX, sizeY)
     }
 end
 
-return MultiWindow
 
 --// PART 21 : Modal Window System
 local TweenService = game:GetService("TweenService")
@@ -2092,7 +2102,6 @@ function Modal:Create(typeName, title, message, callback)
     return Screen
 end
 
-return Modal
 
 --// PART 21 — Modal Window (Confirm / Alert / Warning)
 
@@ -2258,7 +2267,6 @@ function Modal:Create(typeName, title, message, callback)
     return Screen
 end
 
-return Modal
 
 --// PART 22 : Lock Tab With Password System
 
@@ -2354,7 +2362,7 @@ function PasswordManager:CreatePasswordPrompt(correctPassword, callback)
 end
 
 _G.PasswordManager = PasswordManager
-return PasswordManager
+
 
 --// PART 23 — Full Micro-Animations
 local TweenService = game:GetService("TweenService")
@@ -2460,7 +2468,6 @@ end
 
 
 _G.MicroAnim = Anim
-return Anim
 
 --// PART 24 — Key System / Key Auth
 
@@ -2580,7 +2587,6 @@ end
 
 
 _G.KeyAuth = KeyAuth
-return KeyAuth
 
 --// PART 25 — Full Micro Animations System
 local TweenService = game:GetService("TweenService")
@@ -2655,7 +2661,6 @@ function Micro.ApplyAll(UI)
     Micro.Ripple(UI)
 end
 
-return Micro
 
 --// PART 26 — Window Blur Engine (Depth + Background Blur)
 local TweenService = game:GetService("TweenService")
@@ -2742,7 +2747,6 @@ function BlurEngine.Toggle(Window, Enabled)
     end
 end
 
-return BlurEngine
 
 --// PART 27 — 3D Parallax Effect (UI Tilt Based on Mouse)
 local TweenService = game:GetService("TweenService")
@@ -2804,7 +2808,6 @@ function Parallax.Apply(UI, Strength)
     end)
 end
 
-return Parallax
 
 --// PART 28 — Smooth Theme Transition (Dark / Light / Neon / Rainbow)
 local TweenService = game:GetService("TweenService")
@@ -2904,7 +2907,6 @@ function ThemeEngine.AddTheme(Name, Data)
     ThemeEngine.Themes[Name] = Data
 end
 
-return ThemeEngine
 
 --// PART 29 — Particle Background (Dots / Lines / Glow Orbs)
 local TweenService = game:GetService("TweenService")
@@ -3000,7 +3002,6 @@ function ParticleEngine.Apply(UI, Settings)
     return container
 end
 
-return ParticleEngine
 
 --// PART 30 — Glassmorphism Mode (Blur + Transparency + Gradient)
 local TweenService = game:GetService("TweenService")
@@ -3094,8 +3095,6 @@ function GlassEngine.Apply(UI, Settings)
         Library.BlurEngine.Set(Settings.Blur)
     end
 end
-
-return GlassEngine
 
 ---------------------------------------------------------
 --// PART 31 — Live Color Editor (Real-Time UI Color Change)
@@ -3689,32 +3688,51 @@ function CreateIndicatorToggle(parent, title, defaultValue, callback)
 end
 
 ---------------------------------------------------------------------
--- PART 37 — Image Button / Icon Button
+-- PART 37 — Image Button / Icon Button (Fixed)
 ---------------------------------------------------------------------
-function UI:ImageButton(parent, config)
+
+local TweenService = game:GetService("TweenService")
+
+UI = UI or {}
+
+function UIFramework:ImageButton(parent, config)
+    config = config or {}
+
+    local width = config.Width or 40
+    local height = config.Height or 40
+
     local btn = Instance.new("ImageButton")
-    btn.Size = UDim2.new(0, config.Width or 40, 0, config.Height or 40)
+    btn.Size = UDim2.new(0, width, 0, height)
     btn.BackgroundTransparency = 1
     btn.Image = config.Icon or "rbxassetid://0"
     btn.ScaleType = Enum.ScaleType.Fit
     btn.Parent = parent
+    btn.AutoButtonColor = false
 
+    --------------------------------------------------
     -- Hover Zoom
+    --------------------------------------------------
     btn.MouseEnter:Connect(function()
-        TS:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
-            Size = UDim2.new(0, (config.Width or 40)+6, 0, (config.Height or 40)+6)
+        TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, width + 6, 0, height + 6)
         }):Play()
     end)
 
     btn.MouseLeave:Connect(function()
-        TS:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
-            Size = UDim2.new(0, config.Width or 40, 0, config.Height or 40)
+        TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, width, 0, height)
         }):Play()
     end)
 
-    -- Click Ripple
-    btn.MouseButton1Click:Connect(function(x, y)
-        UI:PlayRipple(btn, x, y)
+    --------------------------------------------------
+    -- Click Effect + Callback
+    --------------------------------------------------
+    btn.MouseButton1Click:Connect(function()
+        -- ถ้ามี Ripple system ค่อยเรียก
+        if UI.PlayRipple then
+            UI:PlayRipple(btn)
+        end
+
         if config.Callback then
             task.spawn(config.Callback)
         end
@@ -3952,8 +3970,8 @@ end
 UI.DebugLogs = {}
 
 function UI:Log(msg)
-    table.insert(UI.DebugLogs, "["..os.date("%X").."] "..tostring(msg))
-    print("[UI Debug] "..msg)
+    table.insert(UI.DebugLogs, "[" .. os.date("%X") .. "] " .. tostring(msg))
+    print("[UI Debug] " .. msg)
 end
 
 function UI:OpenDebugConsole()
@@ -4127,3 +4145,20 @@ end
 ---------------------------------------------------------------------
 -- END PART 1-44
 ---------------------------------------------------------------------
+
+return {
+    UIFramework = UIFramework,
+    UISound = UISound,
+    MultiWindow = MultiWindow,
+    Modal = Modal,
+    PasswordManager = PasswordManager,
+    Anim = Anim,
+    KeyAuth = KeyAuth,
+    Micro = Micro,
+    BlurEngine = BlurEngine,
+    Parallax = Parallax,
+    ThemeEngine = ThemeEngine,
+    ParticleEngine = ParticleEngine,
+    GlassEngine = GlassEngine,
+    Library = Library,
+}

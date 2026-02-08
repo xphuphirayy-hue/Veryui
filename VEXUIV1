@@ -4129,4 +4129,753 @@ end
 -- END PART 41–44
 ---------------------------------------------------------------------
 
+--========================================================
+-- PART 45 : UI CONFIG SAVE / LOAD (XENO EXECUTOR)
+--========================================================
+
+local ConfigSystem = {}
+local HttpService = game:GetService("HttpService")
+
+local CONFIG_KEY = "VEX_UI_CONFIG"
+
+-- Save Config สำหรับ Xeno Executor
+function ConfigSystem:Save(configTable)
+    local json = HttpService:JSONEncode(configTable)
+
+    if Xeno and Xeno.Set then
+        Xeno.Set(CONFIG_KEY, json)
+        print("[VEX UI] Config saved via Xeno")
+    else
+        warn("[VEX UI] Xeno.Set not available")
+    end
+end
+
+-- Load Config สำหรับ Xeno Executor
+function ConfigSystem:Load()
+    if Xeno and Xeno.Get then
+        local json = Xeno.Get(CONFIG_KEY)
+        if json and #json > 0 then
+            local success, data = pcall(function()
+                return HttpService:JSONDecode(json)
+            end)
+            if success then
+                print("[VEX UI] Config loaded via Xeno")
+                return data
+            else
+                warn("[VEX UI] Failed to decode Xeno config JSON")
+            end
+        end
+    end
+    return {}
+end
+
+function ConfigSystem:Apply(UI, config)
+    if not config then return end
+
+    if config.Position and UI.SetPosition then
+        UI:SetPosition(config.Position)
+    end
+
+    if config.Size and UI.SetSize then
+        UI:SetSize(config.Size)
+    end
+
+    if config.Theme and UI.SetTheme then
+        UI:SetTheme(config.Theme)
+    end
+end
+
+return ConfigSystem
+
+--========================================================
+-- PART 45 : end
+--========================================================
+
+--========================================================
+-- PART 46 : AUTO LOAD UI CONFIG ON START
+--========================================================
+
+function ConfigSystem:AutoLoad(UI)
+    local cfg = self:Load()
+    if cfg and next(cfg) ~= nil then
+        self:Apply(UI, cfg)
+        print("[VEX UI] Auto-applied saved config")
+    else
+        print("[VEX UI] No saved UI config to load")
+    end
+end
+
+--========================================================
+-- PART 46 : THEME MANAGER
+--========================================================
+
+local ThemeManager = {}
+
+ThemeManager.Themes = {
+    Dark = {
+        Background = Color3.fromRGB(25, 25, 25),
+        Border = Color3.fromRGB(60, 60, 60),
+        Text = Color3.fromRGB(230, 230, 230),
+        Accent = Color3.fromRGB(0, 120, 255)
+    },
+
+    Light = {
+        Background = Color3.fromRGB(240, 240, 240),
+        Border = Color3.fromRGB(200, 200, 200),
+        Text = Color3.fromRGB(20, 20, 20),
+        Accent = Color3.fromRGB(50, 100, 255)
+    },
+
+    Neon = {
+        Background = Color3.fromRGB(0, 0, 0),
+        Border = Color3.fromRGB(255, 0, 255),
+        Text = Color3.fromRGB(0, 255, 255),
+        Accent = Color3.fromRGB(0, 255, 0)
+    },
+
+    Xeno = {
+        Background = Color3.fromRGB(15, 15, 20),
+        Border = Color3.fromRGB(80, 80, 120),
+        Text = Color3.fromRGB(180, 180, 255),
+        Accent = Color3.fromRGB(120, 80, 255)
+    }
+}
+
+function ThemeManager:SetTheme(UI, themeName)
+    local theme = self.Themes[themeName]
+    if not theme then
+        warn("[ThemeManager] Theme not found:", themeName)
+        return
+    end
+
+    for _, obj in pairs(UI:GetDescendants()) do
+        if obj:IsA("Frame") or obj:IsA("ScrollingFrame") then
+            obj.BackgroundColor3 = theme.Background
+            obj.BorderColor3 = theme.Border
+        elseif obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            obj.TextColor3 = theme.Text
+            obj.BackgroundColor3 = theme.Background
+        end
+    end
+
+    print("[ThemeManager] Theme applied:", themeName)
+end
+
+return ThemeManager
+
+--========================================================
+-- PART 47 : DRAG + RESIZE SYSTEM
+--========================================================
+
+local DragResize = {}
+local UIS = game:GetService("UserInputService")
+
+function DragResize:EnableDrag(frame)
+    local dragging = false
+    local dragStart, startPos
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+        end
+    end)
+
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+function DragResize:EnableResize(frame, sizeHandle)
+    local dragging = false
+    local dragStart, startSize
+
+    sizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startSize = frame.Size
+        end
+    end)
+
+    UIS.InputEnded:Connect(function(input)
+        dragging = false
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            frame.Size = UDim2.new(
+                startSize.X.Scale,
+                startSize.X.Offset + delta.X,
+                startSize.Y.Scale,
+                startSize.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+return DragResize
+
+--========================================================
+-- PART 48 : KEYBIND SYSTEM
+--========================================================
+
+local KeybindSystem = {}
+local UIS = game:GetService("UserInputService")
+
+KeybindSystem.CurrentKey = Enum.KeyCode.RightShift -- default
+
+function KeybindSystem:SetKey(newKey)
+    self.CurrentKey = newKey
+    print("[Keybind] Changed key to:", newKey.Name)
+end
+
+function KeybindSystem:BindToggle(UI)
+    UIS.InputBegan:Connect(function(input)
+        if input.KeyCode == self.CurrentKey then
+            UI.Visible = not UI.Visible
+        end
+    end)
+end
+
+return KeybindSystem
+
+--========================================================
+-- PART 49 : ANIMATION ENGINE
+--========================================================
+
+local Animation = {}
+local TweenService = game:GetService("TweenService")
+
+function Animation:Tween(obj, time, style, goal)
+    local tween = TweenService:Create(obj, TweenInfo.new(
+        time,
+        Enum.EasingStyle[style] or Enum.EasingStyle.Sine,
+        Enum.EasingDirection.Out
+    ), goal)
+    tween:Play()
+    return tween
+end
+
+function Animation:Fade(obj, duration, alpha)
+    return self:Tween(obj, duration, "Sine", {BackgroundTransparency = alpha})
+end
+
+function Animation:SlideX(obj, duration, offset)
+    return self:Tween(obj, duration, "Quad", {Position = obj.Position + UDim2.new(0, offset, 0, 0)})
+end
+
+function Animation:SlideY(obj, duration, offset)
+    return self:Tween(obj, duration, "Quad", {Position = obj.Position + UDim2.new(0, 0, 0, offset)})
+end
+
+return Animation
+
+--========================================================
+-- PART 50 : NOTIFICATION SYSTEM
+--========================================================
+
+local Notification = {}
+local TweenService = game:GetService("TweenService")
+
+function Notification:Create(text)
+    local gui = Instance.new("ScreenGui", game.CoreGui)
+    gui.ResetOnSpawn = false
+
+    local frame = Instance.new("Frame", gui)
+    frame.Position = UDim2.new(1, -250, 1, -120)
+    frame.Size = UDim2.new(0, 230, 0, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    frame.BorderSizePixel = 0
+    frame.BackgroundTransparency = 1
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, -10, 1, -10)
+    label.Position = UDim2.new(0, 5, 0, 5)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextScaled = true
+
+    TweenService:Create(frame, TweenInfo.new(0.25), {BackgroundTransparency = 0.12}):Play()
+    wait(2)
+    TweenService:Create(frame, TweenInfo.new(0.25), {BackgroundTransparency = 1}):Play()
+    wait(0.3)
+    gui:Destroy()
+end
+
+return Notification
+
+--========================================================
+-- PART 51 : TAB MEMORY
+--========================================================
+
+local TabMemory = {}
+local HttpService = game:GetService("HttpService")
+local KEY = "VEXUI_LAST_TAB"
+
+function TabMemory:Save(tabName)
+    if Xeno and Xeno.Set then
+        Xeno.Set(KEY, tabName)
+    else
+        getgenv()[KEY] = tabName
+    end
+end
+
+function TabMemory:Load()
+    if Xeno and Xeno.Get then
+        return Xeno.Get(KEY)
+    else
+        return getgenv()[KEY]
+    end
+end
+
+function TabMemory:Apply(UI, tabs)
+    local last = self:Load()
+    if last and tabs[last] then
+        for name, tab in pairs(tabs) do
+            tab.Visible = (name == last)
+        end
+        print("[VEXUI] Loaded last tab:", last)
+    end
+end
+
+return TabMemory
+
+--========================================================
+-- PART 52 : BLUR & TRANSPARENT MODE
+--========================================================
+
+local BlurSystem = {}
+local Lighting = game:GetService("Lighting")
+
+local blur = Instance.new("BlurEffect")
+blur.Size = 0
+blur.Parent = Lighting
+
+function BlurSystem:SetTransparent(UI, alpha)
+    for _, obj in pairs(UI:GetDescendants()) do
+        if obj:IsA("Frame") or obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            obj.BackgroundTransparency = alpha
+        end
+    end
+end
+
+function BlurSystem:SetBlur(enable)
+    blur.Size = enable and 18 or 0
+end
+
+return BlurSystem
+
+--========================================================
+-- PART 53 : CUSTOM CURSOR SYSTEM
+--========================================================
+
+local CursorSystem = {}
+
+function CursorSystem:Enable(cursorId)
+    game:GetService("UserInputService").MouseIconEnabled = true
+    game:GetService("UserInputService").MouseIcon = cursorId
+end
+
+function CursorSystem:Disable()
+    game:GetService("UserInputService").MouseIcon = ""
+end
+
+return CursorSystem
+
+--========================================================
+-- PART 54 : IMPORT / EXPORT CONFIG
+--========================================================
+
+local ImportExport = {}
+local HttpService = game:GetService("HttpService")
+local KEY = "VEX_UI_CONFIG"
+
+function ImportExport:Export(configTable)
+    local json = HttpService:JSONEncode(configTable)
+    local base64 = HttpService:Base64Encode(json)
+    return base64
+end
+
+function ImportExport:Import(base64)
+    local decoded = HttpService:Base64Decode(base64)
+    local success, data = pcall(function()
+        return HttpService:JSONDecode(decoded)
+    end)
+    if success then
+        return data
+    else
+        warn("[VEX UI] Failed to import config")
+        return {}
+    end
+end
+
+return ImportExport
+
+--========================================================
+-- PART 55 : MULTI-PROFILE SYSTEM
+--========================================================
+
+local Profile = {}
+local HttpService = game:GetService("HttpService")
+
+function Profile:SetProfile(name)
+    getgenv().VEX_PROFILE = name
+end
+
+function Profile:GetProfile()
+    return getgenv().VEX_PROFILE or "Default"
+end
+
+function Profile:GetProfileKey()
+    return "VEX_UI_PROFILE_" .. self:GetProfile()
+end
+
+function Profile:Save(data)
+    local key = self:GetProfileKey()
+    Xeno.Set(key, HttpService:JSONEncode(data))
+end
+
+function Profile:Load()
+    local key = self:GetProfileKey()
+    local raw = Xeno.Get(key)
+    if raw then
+        return HttpService:JSONDecode(raw)
+    end
+    return {}
+end
+
+return Profile
+
+--========================================================
+-- PART 56 : TOOLTIP SYSTEM
+--========================================================
+
+local Tooltip = {}
+
+function Tooltip:Attach(obj, text)
+    local gui = Instance.new("ScreenGui", game.CoreGui)
+    gui.ResetOnSpawn = false
+    local tip = Instance.new("TextLabel", gui)
+    tip.Visible = false
+    tip.Text = text
+    tip.Size = UDim2.new(0, 150, 0, 30)
+    tip.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    tip.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tip.TextScaled = true
+    tip.BorderSizePixel = 0
+
+    obj.MouseEnter:Connect(function()
+        tip.Visible = true
+    end)
+
+    obj.MouseLeave:Connect(function()
+        tip.Visible = false
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            tip.Position = UDim2.new(0, input.Position.X + 10, 0, input.Position.Y + 10)
+        end
+    end)
+end
+
+return Tooltip
+
+--========================================================
+-- PART 57 : UI FPS OPTIMIZER
+--========================================================
+
+local FPSOptimizer = {}
+
+function FPSOptimizer:Optimize(UI)
+    UI:GetPropertyChangedSignal("Visible"):Connect(function()
+        if UI.Visible == false then
+            setfpscap(30)   -- ลดโหลดตอนปิด UI
+        else
+            setfpscap(120)  -- กลับมาปกติ
+        end
+    end)
+end
+
+return FPSOptimizer
+
+--========================================================
+-- PART 58 : PERMISSION SYSTEM
+--========================================================
+
+local Permission = {}
+
+function Permission:Check(isDev)
+    getgenv().VEX_IS_DEV = isDev
+end
+
+function Permission:Apply(tabs)
+    for name, tab in pairs(tabs) do
+        if tab.DevOnly and not getgenv().VEX_IS_DEV then
+            tab.Visible = false
+        end
+    end
+end
+
+return Permission
+
+--========================================================
+-- PART 59 : REMOTE THEME LOADER
+--========================================================
+
+local RemoteTheme = {}
+local HttpService = game:GetService("HttpService")
+local ThemeManager = require(script.Parent.ThemeManager)
+
+function RemoteTheme:Load(url, UI)
+    local raw = game:HttpGet(url)
+    local themeTable = HttpService:JSONDecode(raw)
+    ThemeManager.Themes[themeTable.Name] = themeTable
+    ThemeManager:SetTheme(UI, themeTable.Name)
+end
+
+return RemoteTheme
+
+--========================================================
+-- PART 60 : NETWORK CONNECTOR
+--========================================================
+
+local Net = {}
+local HttpService = game:GetService("HttpService")
+
+function Net:GetJSON(url)
+    local raw = game:HttpGet(url)
+    return HttpService:JSONDecode(raw)
+end
+
+function Net:GetMessage(url)
+    local data = self:GetJSON(url)
+    return data.message or ""
+end
+
+return Net
+
+--========================================================
+-- PART 61 : REAL TIME CLOCK (UI LEFT-BOTTOM)
+--========================================================
+
+local RealClock = {}
+
+function RealClock:AddClock(UI)
+    local clock = Instance.new("TextLabel")
+    clock.Parent = UI
+    clock.AnchorPoint = Vector2.new(0, 1)
+    clock.Position = UDim2.new(0, 10, 1, -10)   -- มุมซ้ายล่าง
+    clock.Size = UDim2.new(0, 180, 0, 25)
+    clock.BackgroundTransparency = 1
+    clock.TextColor3 = Color3.fromRGB(200, 200, 200)
+    clock.TextXAlignment = Enum.TextXAlignment.Left
+    clock.TextYAlignment = Enum.TextYAlignment.Center
+    clock.Font = Enum.Font.GothamBold
+    clock.TextScaled = true
+
+    task.spawn(function()
+        while UI.Parent do
+            local t = os.date("*t")
+            local hour = string.format("%02d", t.hour)
+            local min  = string.format("%02d", t.min)
+            local sec  = string.format("%02d", t.sec)
+
+            clock.Text = "⏰ " .. hour .. ":" .. min .. ":" .. sec
+            task.wait(1)
+        end
+    end)
+end
+
+return RealClock
+
+--========================================================
+-- VEX UI ADDONS (PART 62–69)
+--========================================================
+
+local Addons = {}
+
+local HttpService = game:GetService("HttpService")
+local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+
+----------------------------------------------------------
+-- PART 62 : AUTO DAY/NIGHT THEME
+----------------------------------------------------------
+
+function Addons.AutoTheme(UI, ThemeManager)
+    task.spawn(function()
+        while true do
+            local hour = tonumber(os.date("%H"))
+            if hour >= 6 and hour < 18 then
+                ThemeManager:SetTheme(UI, "Light")
+            else
+                ThemeManager:SetTheme(UI, "Dark")
+            end
+            task.wait(60)
+        end
+    end)
+end
+
+----------------------------------------------------------
+-- PART 63 : WEATHER EFFECT (RAIN)
+----------------------------------------------------------
+
+function Addons.WeatherRain(UI)
+    for i = 1, 40 do
+        local drop = Instance.new("Frame", UI)
+        drop.Size = UDim2.new(0, 2, 0, math.random(10, 25))
+        drop.Position = UDim2.new(math.random(), 0, -0.1, 0)
+        drop.BackgroundColor3 = Color3.fromRGB(150, 150, 255)
+        drop.BorderSizePixel = 0
+
+        task.spawn(function()
+            local speed = math.random(1, 3)
+            while drop and drop.Parent do
+                drop.Position = drop.Position + UDim2.new(0, 0, 0, speed * 5)
+                if drop.Position.Y.Scale > 1 then
+                    drop.Position = UDim2.new(math.random(), 0, -0.1, 0)
+                end
+                task.wait()
+            end
+        end)
+    end
+end
+
+----------------------------------------------------------
+-- PART 64 : PARALLAX PANEL (3D EFFECT)
+----------------------------------------------------------
+
+function Addons.Parallax(frame)
+    UIS.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            local x = (input.Position.X / 1920) - 0.5
+            local y = (input.Position.Y / 1080) - 0.5
+            frame.Rotation = x * 8
+            frame.Position = frame.Position + UDim2.new(0, x * 3, 0, y * 3)
+        end
+    end)
+end
+
+----------------------------------------------------------
+-- PART 65 : GRADIENT ENGINE
+----------------------------------------------------------
+
+function Addons.Gradient(obj, c1, c2)
+    local g = Instance.new("UIGradient", obj)
+    g.Color = ColorSequence.new(c1, c2)
+end
+
+----------------------------------------------------------
+-- PART 66 : AMBIENT SOUND PLAYER
+----------------------------------------------------------
+
+function Addons.PlayAmbient(soundId)
+    local s = Instance.new("Sound", game.CoreGui)
+    s.SoundId = soundId
+    s.Volume = 0.3
+    s.Looped = true
+    s:Play()
+end
+
+function Addons.ClickSound(obj, soundId)
+    obj.MouseButton1Click:Connect(function()
+        local s = Instance.new("Sound", obj)
+        s.SoundId = soundId
+        s.Volume = 0.3
+        s:Play()
+    end)
+end
+
+----------------------------------------------------------
+-- PART 67 : ANIMATED TAB ICONS (PULSE EFFECT)
+----------------------------------------------------------
+
+function Addons.TabPulse(icon)
+    task.spawn(function()
+        while icon.Parent do
+            icon.Size = icon.Size + UDim2.new(0, 2, 0, 2)
+            task.wait(0.2)
+            icon.Size = icon.Size - UDim2.new(0, 2, 0, 2)
+            task.wait(0.2)
+        end
+    end)
+end
+
+----------------------------------------------------------
+-- PART 68 : ANTI-OVERLAP SYSTEM
+----------------------------------------------------------
+
+function Addons.AntiOverlap(list)
+    for i, uiA in ipairs(list) do
+        for j, uiB in ipairs(list) do
+            if i ~= j then
+                if uiA.AbsolutePosition.X < uiB.AbsolutePosition.X + uiB.AbsoluteSize.X and
+                   uiA.AbsolutePosition.X + uiA.AbsoluteSize.X > uiB.AbsolutePosition.X and
+                   uiA.AbsolutePosition.Y < uiB.AbsolutePosition.Y + uiB.AbsoluteSize.Y and
+                   uiA.AbsolutePosition.Y + uiA.AbsoluteSize.Y > uiB.AbsolutePosition.Y then
+
+                    uiB.Position = uiB.Position + UDim2.new(0, 25, 0, 25)
+                end
+            end
+        end
+    end
+end
+
+----------------------------------------------------------
+-- PART 69 : FULLSCREEN BUTTON
+----------------------------------------------------------
+
+function Addons.Fullscreen(UI)
+    local btn = Instance.new("TextButton", UI)
+    btn.Size = UDim2.new(0, 50, 0, 25)
+    btn.Position = UDim2.new(1, -60, 0, 10)
+    btn.Text = "⛶"
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.BorderSizePixel = 0
+
+    local isFull = false
+    local oldSize = UI.Size
+    local oldPos = UI.Position
+
+    btn.MouseButton1Click:Connect(function()
+        if not isFull then
+            oldSize = UI.Size
+            oldPos = UI.Position
+            UI.Size = UDim2.new(1, -50, 1, -50)
+            UI.Position = UDim2.new(0, 25, 0, 25)
+            isFull = true
+        else
+            UI.Size = oldSize
+            UI.Position = oldPos
+            isFull = false
+        end
+    end)
+end
+
+----------------------------------------------------------
+-- RETURN TABLE
+----------------------------------------------------------
+
+return Addons
 
